@@ -1,0 +1,24 @@
+# محیط مجازی
+venv/
+.venv/
+
+# کش پایتون
+__pycache__/
+*.pyc
+*.pyo
+
+# فایل‌های حجیم پروژه AI
+vectorstore/
+faiss_index/
+*.faiss
+*.pkl
+
+# فایل‌های محیطی
+.env
+
+# لاگ‌ها
+*.log
+
+# سیستم عامل
+.DS_Store
+Thumbs.db
