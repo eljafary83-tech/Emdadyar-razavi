@@ -14,8 +14,8 @@ generation/intent_classifier.py
     - سریع، قطعی (Deterministic) و بدون هزینه فراخوانی LLM باشد
     - در Production قابل اعتماد و قابل تست واحد باشد
 
-خروجی این ماژول (RequestType) مستقیماً ورودی generation/prompt_builder.py
-برای انتخاب Prompt Template مناسب است.
+خروجی این ماژول (RequestType) توسط services/assistant.py برای انتخاب
+Prompt فایل‌محور و اعتبارسنجی خروجی استفاده می‌شود.
 """
 
 from __future__ import annotations

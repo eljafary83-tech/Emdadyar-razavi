@@ -1,258 +1,75 @@
-# 🌙 امدادیار رضوی
+# امدادیار رضوی
 
-دستیار هوشمند آموزشی جمعیت هلال احمر خراسان رضوی — مبتنی بر معماری **RAG**
-(Retrieval-Augmented Generation) با **PyMuPDF**، **FAISS**، **LangChain** و
-رابط کاربری **Streamlit**.
+دستیار آموزشی فارسی جمعیت هلال احمر خراسان رضوی، با معماری یکپارچهٔ **RAG + LLM**. پیش از هر تولید، برنامه فقط در PDFهای `knowledge_base/` جست‌وجو می‌کند؛ در صورت عبور نتایج از آستانهٔ شباهت، Context همراه با نام فایل و صفحه به Provider مدل زبانی داده می‌شود.
 
-این دستیار **فقط** بر اساس فایل‌های PDF موجود در پوشه `knowledge_base/` پاسخ
-تولید می‌کند. در صورت نبود اطلاعات کافی در منابع، دقیقاً پیام زیر نمایش داده
-می‌شود:
+## قابلیت‌ها
 
-> پاسخی برای این سوال در منابع موجود یافت نشد.
+- پاسخ مستقیم فارسی به پرسش‌ها، همراه با citation منبع و صفحه.
+- سناریوی آموزشی ساختاریافته برای موقعیت، شهرستان، فصل و حادثهٔ انتخابی.
+- سؤال‌های ارزیابی چهارگزینه‌ای، پاسخ صحیح و توضیح مبتنی بر منبع.
+- تشخیص خودکار تغییر PDFها با SHA-256، قفل فایل و بازسازی atomic index در اجرای طولانی Streamlit.
+- fallback قطعی برای درخواست‌های بدون منبع مرتبط؛ API هرگز در این وضعیت فراخوانی نمی‌شود.
 
----
+## معماری
 
-## فهرست مطالب
-
-- [ویژگی‌ها](#ویژگی‌ها)
-- [ساختار پروژه](#ساختار-پروژه)
-- [پیش‌نیازها](#پیش‌نیازها)
-- [نصب و راه‌اندازی](#نصب-و-راه‌اندازی)
-- [اجرای پروژه در VSCode](#اجرای-پروژه-در-vscode)
-- [آماده‌سازی پایگاه دانش](#آماده‌سازی-پایگاه-دانش)
-- [نحوه استفاده از دستیار](#نحوه-استفاده-از-دستیار)
-- [توضیح ماژول‌ها](#توضیح-ماژول‌ها)
-- [پوشه Prompts](#پوشه-prompts)
-- [عیب‌یابی رایج](#عیب‌یابی-رایج)
-
----
-
-## ویژگی‌ها
-
-- سه حالت عملکردی: **پاسخ‌گویی مستقیم (QA)**، **تولید سناریوی آموزشی
-  (SCENARIO)** و **تولید سؤالات ارزیابی (QUIZ)**
-- تشخیص خودکار نوع درخواست بر اساس کلیدواژه‌های فارسی
-- بازیابی اطلاعات (Retrieval) صرفاً از فایل‌های PDF پوشه `knowledge_base/`
-  با استفاده از **PyMuPDF** (استخراج متن) و **FAISS** (جستجوی برداری)
-  مدیریت‌شده توسط **LangChain**
-- قانون Guardrail دولایه برای جلوگیری از پاسخ‌های ساختگی (Hallucination)
-- رابط کاربری Streamlit با هویت بصری هلال احمر خراسان رضوی (رنگ قرمز، طلایی
-  گنبد، کرم روشن) و نقشه ساده انتخاب شهرستان برای سناریوهای آموزشی بومی‌سازی‌شده
-
----
-
-## ساختار پروژه
-
-```
-emdadyar-razavi/
-│
-├── app.py                          # نقطه ورود اصلی پروژه — اجرا با: streamlit run app.py
-├── requirements.txt                # تمام وابستگی‌های پایتون پروژه
-├── .env.example                    # نمونه متغیرهای محیطی (کپی کنید به .env)
-├── README.md                       # همین فایل
-│
-├── knowledge_base/                 # پوشه فایل‌های PDF منبع دانش (تنها منبع مجاز)
-│   └── *.pdf                       # فایل‌های PDF رسمی هلال احمر خراسان رضوی
-│
-├── data/
-│   ├── vector_store/                # ایندکس FAISS خام (تولیدشده توسط rag/vectorstore.py)
-│   └── vector_store_langchain/      # ایندکس FAISS مدیریت‌شده توسط LangChain (utils/generator.py)
-│
-├── prompts/                         # نسخه مرجع و قابل‌ویرایش Prompt Templateها
-│   ├── common_rules.txt             # قوانین مشترک پاسخ‌دهی (در همه حالت‌ها)
-│   ├── qa_prompt.txt                # قالب حالت پاسخ‌گویی مستقیم
-│   ├── scenario_prompt.txt          # قالب حالت تولید سناریوی آموزشی
-│   ├── quiz_prompt.txt              # قالب حالت تولید سؤالات ارزیابی
-│   └── not_found_message.txt        # پیام ثابت Fallback
-│
-├── rag/
-│   ├── loader.py                    # خواندن PDF با PyMuPDF + Chunking
-│   ├── vectorstore.py                # Embedding + ایندکس FAISS خام
-│   └── retriever.py                  # منطق بازیابی Top-K از FAISS
-│
-├── generation/
-│   ├── intent_classifier.py          # تشخیص نوع درخواست (QA/SCENARIO/QUIZ)
-│   ├── prompt_templates.py           # قالب‌های Prompt هر حالت + پیام Fallback
-│   └── prompt_builder.py             # انتخاب و پرکردن Prompt مناسب
-│
-├── utils/
-│   ├── classifier.py                 # لایه سازگاری روی generation/intent_classifier.py
-│   └── generator.py                  # هسته Backend: RAG با LangChain + FAISS + LLM
-│
-└── ui/
-    └── streamlit_app.py               # اجزای بصری رابط کاربری (هدر، CSS، نقشه استان)
+```text
+app.py / Streamlit UI
+  -> services.AssistantService
+     -> rag.Retriever (threshold + citations)
+        -> rag.PDFLoader -> FAISS + JSON metadata
+     -> prompts/*.txt
+     -> llm.LLMProvider -> llm.ChatCompletionsClient
 ```
 
-> **نکته:** فایل `app.py` نقطه ورود واحد پروژه است و تمام ماژول‌های بالا را
-> به یکدیگر متصل می‌کند. فایل `ui/streamlit_app.py` هم به‌صورت مستقل
-> (`streamlit run ui/streamlit_app.py` با Backend نمایشی) و هم به‌عنوان
-> کتابخانه اجزای بصری داخل `app.py` قابل استفاده است.
+فقط یک مسیر index وجود دارد: `data/vector_store/`. metadata و manifest به JSON ذخیره می‌شوند، checksum دارند و پروژه هیچ‌گاه pickle یا `allow_dangerous_deserialization` استفاده نمی‌کند.
 
----
-
-## پیش‌نیازها
-
-- Python نسخه ۳.۱۰ یا بالاتر
-- pip
-- یک کلید API معتبر از Anthropic (برای فراخوانی مدل زبانی)
-- VSCode (توصیه‌شده) به‌همراه پسوند رسمی Python
-
----
-
-## نصب و راه‌اندازی
-
-### ۱. دریافت پروژه و ساخت محیط مجازی
+## نصب و اجرا
 
 ```bash
-cd emdadyar-razavi
-
-# ساخت Virtual Environment
 python -m venv .venv
-
-# فعال‌سازی محیط مجازی
-# در Windows:
-.venv\Scripts\activate
-# در macOS/Linux:
 source .venv/bin/activate
-```
-
-### ۲. نصب وابستگی‌ها
-
-```bash
-pip install --upgrade pip
 pip install -r requirements.txt
-```
-
-### ۳. تنظیم متغیرهای محیطی
-
-فایل `.env.example` را کپی کرده و به `.env` تغییر نام دهید، سپس کلید API خود
-را وارد کنید:
-
-```bash
 cp .env.example .env
-```
-
-محتوای `.env`:
-```
-ANTHROPIC_API_KEY=کلید_واقعی_شما
-ANTHROPIC_MODEL_NAME=claude-sonnet-4-5
-```
-
----
-
-## اجرای پروژه در VSCode
-
-۱. پوشه پروژه را در VSCode باز کنید (`File > Open Folder`).
-۲. مطمئن شوید Interpreter پایتون روی محیط مجازی `.venv` تنظیم شده است
-   (`Ctrl+Shift+P` → `Python: Select Interpreter` → انتخاب `.venv`).
-۳. یک ترمینال یکپارچه باز کنید (`` Ctrl+` ``) و دستور زیر را اجرا کنید:
-
-```bash
 streamlit run app.py
 ```
 
-۴. برنامه به‌صورت پیش‌فرض روی آدرس `http://localhost:8501` در مرورگر باز
-   می‌شود.
+در اجرای نخست، مدل embedding چندزبانه دریافت و index ساخته می‌شود. برای اجرا بدون مدل زبانی، متغیرهای LLM را خالی بگذارید؛ retrieval انجام می‌شود اما برنامه به‌جای crash پیام کنترل‌شدهٔ تنظیم‌نبودن سرویس نمایش می‌دهد.
 
----
+## پیکربندی
 
-## آماده‌سازی پایگاه دانش
+```dotenv
+LLM_API_URL=
+LLM_API_KEY=
+LLM_MODEL=
+LLM_TIMEOUT_SECONDS=30
+RETRIEVAL_THRESHOLD=0.42
+RETRIEVAL_TOP_K=5
+EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
+CHUNK_SIZE=900
+CHUNK_OVERLAP=140
+MIN_CHUNK_LENGTH=60
+```
 
-۱. فایل‌های PDF رسمی هلال احمر خراسان رضوی را داخل پوشه `knowledge_base/`
-   قرار دهید (در صورت نبود این پوشه، آن را در ریشه پروژه بسازید).
-۲. نیازی به اجرای دستی مرحله Indexing نیست: در اولین اجرای `app.py`،
-   تابع `RAGGenerator.ensure_ready()` به‌صورت خودکار:
-   - تلاش می‌کند ایندکس ذخیره‌شده قبلی را از `data/vector_store_langchain/`
-     بارگذاری کند؛
-   - در صورت نبود ایندکس، تمام PDFها را با PyMuPDF می‌خواند، Chunk می‌کند،
-     Embedding تولید می‌کند، ایندکس FAISS را می‌سازد و آن را برای اجراهای
-     بعدی ذخیره می‌کند.
-۳. در صورت افزودن یا تغییر PDFهای `knowledge_base/`، برای بازسازی ایندکس،
-   پوشه `data/vector_store_langchain/` را حذف کرده و برنامه را دوباره اجرا
-   کنید (یا در محیط توسعه، به‌صورت دستی از طریق ترمینال Python:
-   `python -c "from utils.generator import RAGGenerator; g = RAGGenerator(); g.build_index(); g.save_index()"`).
+API client از قرارداد generic/OpenAI-compatible chat completions استفاده می‌کند. Provider در `llm/provider.py` جداست؛ برای تعویض سرویس فقط Provider یا Client را پیاده‌سازی/تزریق کنید، نه UI را. هیچ کلید یا URL واقعی در Repository قرار ندهید.
 
----
+`RETRIEVAL_THRESHOLD` باید با پرسش‌های واقعی فارسی کالیبره شود. مقدار پیش‌فرض، نقطهٔ شروع است نه تضمین کیفیت برای هر مجموعه‌داده.
 
-## نحوه استفاده از دستیار
+## پایگاه دانش و index
 
-پس از باز شدن برنامه:
+فقط PDFهای معتبر و مجاز را در `knowledge_base/` قرار دهید. PDF رمزگذاری‌شده، خراب، بزرگ‌تر از ۲۵MB، بیش از ۵۰۰ صفحه یا بیش از ۱۰۰ فایل پذیرفته نمی‌شود. manifest index شامل fingerprint محتوای PDFها، نام مدل embedding، بعد بردار، تنظیمات chunking و checksum فایل‌های index است. پیش از هر retrieval، تغییر PDF، افزوده/حذف‌شدن PDF یا تغییر مدل/تنظیمات باعث بازسازی index می‌شود.
 
-۱. **نوع درخواست** را انتخاب کنید:
-   - **پاسخ‌گویی به سؤال** — برای دریافت پاسخ مستقیم از منابع آموزشی
-   - **طراحی سناریوی آموزشی** — برای تولید سناریوی بومی‌سازی‌شده بر اساس
-     شهرستان، فصل و نوع حادثه انتخابی
-   - **تولید سؤالات ارزیابی** — برای ساخت سؤالات چهارگزینه‌ای بر اساس یک موضوع
+## امنیت
 
-۲. در حالت **سناریوی آموزشی**:
-   - ابتدا شهرستان مورد نظر را از روی نقشه ساده استان انتخاب کنید (مثلاً مشهد،
-     نیشابور، قوچان، تربت جام و ...)
-   - سپس فصل وقوع حادثه را انتخاب کنید
-   - در نهایت نوع حادثه را انتخاب کنید (مثلاً «امدادرسانی به زائران در ایام
-     شلوغی»، «کولاک و بهمن در محورهای کوهستانی»، «سیلاب» و غیره)
+- خروجی LLM و محتوای PDF قبل از نمایش HTML-escape می‌شوند.
+- خروجی LLM باید JSON ساخت‌یافته با source-idهای بازیابی‌شده باشد؛ citation ساختگی یا پاسخ نامعتبر رد می‌شود.
+- metadata index JSON و checksum‌دار است؛ فایل pickle بارگذاری نمی‌شود.
+- timeout، اتصال، HTTP، authentication، rate-limit، پاسخ نامعتبر و پاسخ خالی API به خطای کنترل‌شده تبدیل می‌شوند.
+- برای استقرار عمومی، HTTPS، authentication، rate limiting و permission محدود روی `knowledge_base/` و `data/` را در لایهٔ زیرساخت اعمال کنید.
 
-۳. متن تکمیلی یا پرسش خود را در کادر متنی وارد کرده و روی **«ارسال درخواست»**
-   کلیک کنید.
+## تست
 
-۴. پاسخ نهایی همراه با فهرست منابع استفاده‌شده (نام فایل و شماره صفحه) نمایش
-   داده می‌شود. اگر اطلاعات کافی در منابع یافت نشود، فقط پیام ثابت زیر نشان
-   داده می‌شود:
+```bash
+python -B -m pytest -q
+```
 
-   > پاسخی برای این سوال در منابع موجود یافت نشد.
-
----
-
-## توضیح ماژول‌ها
-
-| ماژول | مسئولیت |
-|---|---|
-| `rag/loader.py` | استخراج متن از PDF با PyMuPDF و تقسیم به Chunkهای هم‌پوشان |
-| `rag/vectorstore.py` | Embedding و مدیریت ایندکس FAISS خام (مورد استفاده مستقیم در `ui/streamlit_app.py` نسخه مستقل) |
-| `rag/retriever.py` | منطق بازیابی Top-K از ایندکس FAISS خام |
-| `generation/intent_classifier.py` | تشخیص Rule-Based نوع درخواست (QA/SCENARIO/QUIZ) |
-| `generation/prompt_templates.py` | قالب‌های Prompt هر حالت و پیام ثابت Fallback |
-| `generation/prompt_builder.py` | اتصال Retriever + Classifier + Templates برای ساخت Prompt نهایی |
-| `utils/classifier.py` | لایه سازگاری Backend روی `generation/intent_classifier.py` |
-| `utils/generator.py` | هسته اصلی Backend: مدیریت کامل RAG با LangChain، FAISS و فراخوانی LLM (Anthropic) |
-| `ui/streamlit_app.py` | اجزای بصری (هدر، CSS سازمانی، نقشه ساده استان) |
-| `app.py` | نقطه ورود اصلی؛ اتصال رابط کاربری به Backend واقعی و اجرای کامل جریان RAG |
-
----
-
-## پوشه Prompts
-
-پوشه `prompts/` نسخه‌های **مرجع و قابل‌ویرایش** Prompt Templateهای پروژه را
-به شکل فایل متنی ساده نگه می‌دارد تا کارشناسان آموزشی هلال احمر بتوانند
-محتوای قوانین و قالب‌ها را بدون نیاز به دانش برنامه‌نویسی مطالعه و بازبینی
-کنند:
-
-- `common_rules.txt` — قوانین مشترک پاسخ‌دهی (اعمال‌شده در هر سه حالت)
-- `qa_prompt.txt` — قالب حالت پاسخ‌گویی مستقیم
-- `scenario_prompt.txt` — قالب حالت تولید سناریوی آموزشی
-- `quiz_prompt.txt` — قالب حالت تولید سؤالات ارزیابی
-- `not_found_message.txt` — پیام ثابت Fallback
-
-> **نکته فنی:** نسخه *اجراشونده و الزام‌آور* این قالب‌ها همچنان داخل
-> `generation/prompt_templates.py` قرار دارد (به‌صورت رشته‌های پایتون با
-> Placeholderهای `{context}`, `{user_input}`, `{common_rules}`,
-> `{num_questions}`) تا مکانیزم `str.format()` به‌درستی و بدون وابستگی به
-> خواندن فایل در زمان اجرا کار کند. فایل‌های این پوشه صرفاً برای مستندسازی،
-> بازبینی محتوایی و هماهنگی بین تیم فنی و تیم آموزشی هستند؛ در صورت تغییر
-> محتوای این فایل‌ها، باید تغییر متناظر در `generation/prompt_templates.py`
-> نیز اعمال شود.
-
----
-
-## عیب‌یابی رایج
-
-| مشکل | راه‌حل |
-|---|---|
-| خطای `ANTHROPIC_API_KEY` یافت نشد | مطمئن شوید فایل `.env` را از روی `.env.example` ساخته و کلید معتبر وارد کرده‌اید |
-| خطای «هیچ فایل PDF‌ای در knowledge_base یافت نشد» | حداقل یک فایل PDF داخل پوشه `knowledge_base/` قرار دهید |
-| برنامه هنگام اجرا کند است | بارگذاری اولیه مدل Embedding و ساخت ایندکس ممکن است چند دقیقه طول بکشد؛ در اجراهای بعدی به دلیل Cache شدن (`st.cache_resource`) این فرآیند تکرار نمی‌شود |
-| خطای `StreamlitAPIException: set_page_config` | این خطا در نسخه فعلی رفع شده است؛ اگر مشاهده شد، مطمئن شوید همیشه با `streamlit run app.py` (و نه فایل دیگر) برنامه را اجرا می‌کنید |
-| پاسخ‌ها همیشه «یافت نشد» است | بررسی کنید فایل‌های PDF محتوای متنی قابل استخراج دارند (نه صرفاً تصویر اسکن‌شده بدون OCR) |
-
----
-
-**امدادیار رضوی** — جمعیت هلال احمر خراسان رضوی
+تست‌ها PDF loading، chunking، retrieval threshold، fallback، classifier، API client و خطاهای آن، هر سه نوع خروجی service و تشخیص stale index را پوشش می‌دهند.
