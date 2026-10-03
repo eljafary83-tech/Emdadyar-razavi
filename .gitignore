@@ -8,8 +8,7 @@ __pycache__/
 *.pyo
 
 # فایل‌های حجیم پروژه AI
-vectorstore/
-faiss_index/
+data/vector_store/
 *.faiss
 *.pkl
 
